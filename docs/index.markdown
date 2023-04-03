@@ -20,7 +20,7 @@
       <td>Chirp train</td>
       <td>
         <audio controls>
-          <source src="audio-examples/dry/train_input_dry.wav" type="audio/wav">
+          <source src="audio-examples/dp2/train_input_dry.wav" type="audio/wav">
         </audio></td>
       <td>
         <audio controls>
