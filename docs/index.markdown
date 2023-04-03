@@ -20,31 +20,31 @@
       <td>Chirp train</td>
       <td>
         <audio controls>
-          <source src="../../audio-examples/dry/train_input_dry.wav" type="audio/wav">
+          <source src="audio-examples/dry/train_input_dry.wav" type="audio/wav">
         </audio></td>
       <td>
         <audio controls>
-          <source src="../../audio-examples/dp-2/train_phaser_rate=0p5_fb=0p7_saw.wav" type="audio/wav">
+          <source src="audio-examples/dp-2/train_phaser_rate=0p5_fb=0p7_saw.wav" type="audio/wav">
         </audio></td>
       <td>
         <audio controls>
-          <source src="../../audio-examples/dp-2/train_W=10ms_3f70zm7c.wav" type="audio/wav">
+          <source src="audio-examples/dp-2/train_W=10ms_3f70zm7c.wav" type="audio/wav">
         </audio></td>
       <td>
         <audio controls>
-          <source src="../../audio-examples/dp-2/train_W=20ms_29ayt2gj.wav" type="audio/wav">
+          <source src="audio-examples/dp-2/train_W=20ms_29ayt2gj.wav" type="audio/wav">
         </audio></td>
       <td>
         <audio controls>
-          <source src="../../audio-examples/dp-2/train_W=40ms_2b1qi9re.wav" type="audio/wav">
+          <source src="audio-examples/dp-2/train_W=40ms_2b1qi9re.wav" type="audio/wav">
         </audio></td>
       <td>
         <audio controls>
-          <source src="../../audio-examples/dp-2/train_W=80ms_1h2lwyr8.wav" type="audio/wav">
+          <source src="audio-examples/dp-2/train_W=80ms_1h2lwyr8.wav" type="audio/wav">
         </audio></td>
       <td>
         <audio controls>
-          <source src="../../audio-examples/dp-2/train_W=160ms_li4p2nw1.wav" type="audio/wav">
+          <source src="audio-examples/dp-2/train_W=160ms_li4p2nw1.wav" type="audio/wav">
         </audio></td>
     </tr>
   </tbody>
