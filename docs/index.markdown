@@ -18,15 +18,15 @@ Digital phaser, LFO period = 2s, g1 = 1.0, g2 = 0.7 (DP-2)
       <td>Chirp train</td>
       <td>
         <audio controls>
-          <source src="audio-examples/dry/train_input_dry.wav" type="audio/wav">
+          <source src="../audio-examples/dry/train_input_dry.wav" type="audio/wav">
         </audio></td>
       <td>
         <audio controls>
-          <source src="audio-examples/dp-2/train_phaser_rate=0p5_fb=0p7_saw.wav" type="audio/wav">
+          <source src="../audio-examples/dp-2/train_phaser_rate=0p5_fb=0p7_saw.wav" type="audio/wav">
         </audio></td>
       <td>
         <audio controls>
-          <source src="audio-examples/dp-2/train_W=10ms_3f70zm7c.wav" type="audio/wav">
+          <source src="../audio-examples/dp-2/train_W=10ms_3f70zm7c.wav" type="audio/wav">
         </audio></td>
       <td>
         <audio controls>
