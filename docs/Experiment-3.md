@@ -2,12 +2,14 @@
 layout: page
 title: "Experiment 3"
 permalink: /experiment-3
+order: 4
 
 ---
+<script src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
 
 #### Description
 
-The audio examples below demonstrate the effect of inference window length, W, on model accuracy when emulating the Electro-Harmonix (EHX) Colour Stone phaser pedal.
+The audio examples below demonstrate the effect of inference window length, $$W$$, on model accuracy when emulating the Electro-Harmonix (EHX) Colour Stone phaser pedal.
 
 #### EHX Small-stone -- Colour Off (no feedback)
 
