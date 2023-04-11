@@ -31,7 +31,7 @@ if __name__ == '__main__':
         out = model.forward(data["input"])
 
     # SAVE
-    torchaudio.save("inference_out_slow.wav", out.detach(), sample_rate)
+    torchaudio.save("inference_out.wav", out.detach(), sample_rate)
     print("Saved")
 
 
