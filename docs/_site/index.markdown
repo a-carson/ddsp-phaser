@@ -1,0 +1,10 @@
+
+
+#### Welcome to the accompanying web-page for our paper<sup>1</sup>. Use the tabs above to navigate to the different experiments and the corresponding example audio files.
+
+#### Source code can be found [here](https://github.com/a-carson/ddsp-phaser/).
+
+### <b>Abstract</b>
+Machine learning approaches to modelling analog audio effects have seen intensive investigation in recent years, particularly in the context of non-linear time-invariant effects such as guitar amplifiers. For modulation effects such as phasers, however, new challenges emerge due to the presence of the low-frequency oscillator which controls the slowly time-varying nature of the effect. Existing approaches have either required foreknowledge of this control signal, or have been non-causal in implementation. This work presents a differentiable digital signal processing approach to modelling phaser effects in which the underlying control signal and time-varying spectral response of the effect are jointly learned. The proposed model processes audio in short frames to implement a time-varying filter in the frequency domain, with a transfer function based on typical analog phaser circuit topology. We show that the model can be trained to emulate an analog reference device, while retaining interpretable and adjustable parameters. The frame duration is an important hyper-parameter of the proposed model, so an investigation was carried out into its effect on model accuracy. The optimal frame length depends on both the rate and transient decay-time of the target effect, but the frame length can be altered at inference time without a significant change in accuracy.
+
+##### <sup>1</sup> A. Carson, C. Valentini-Bontinhao, S. King and S. Bilbao "Differentiable Grey-box Modelling of Phaser Effects using Frame-Based Spectral Processing" in *Proceedings of the 26th International Conference on Digital Audio Effects (DAFx23)*, Copenhagen, Denmark, Sept. 2023.

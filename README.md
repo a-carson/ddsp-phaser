@@ -38,3 +38,13 @@ The LFO rate (in Hz) can be changed at inference using the
 ```
 python3 inference.py --checkpoint_path checkpoints/ss-A.ckpt --f0 0.5
 ```
+#### Citation
+Accepted to the 26th International Conference on Digital Audio Effects (DAFx23), Copenhagen, Denmark, 4 - 7 September 2023.
+```
+@inproceedings{carson2023phaser,
+               title={Differentiable Grey-box Modelling of Phaser Effects using Frame-based Spectral Processing},
+               author={Alistair Carson and Cassia Valentini-Botinhao and Simon King and Stefan Bilbao},
+               booktitle={Proceedings of the 26th International Conference on Digital Audio Effects (DAFx23)},
+               year={2023},
+               address={Copenhagen, Denmark}}
+```
