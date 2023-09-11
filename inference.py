@@ -3,10 +3,6 @@ import torch
 import torchaudio
 from train_phaser import Phaser
 from utils import dataset as ds
-from utils import loss_modules as ls
-import json
-import matplotlib.pyplot as plt
-import numpy as np
 
 
 if __name__ == '__main__':
