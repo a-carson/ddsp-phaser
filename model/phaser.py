@@ -5,6 +5,7 @@ import torch
 from torch.nn import Parameter
 from torch import Tensor
 import model.z_domain_filters as z_utils
+import numpy as np
 
 
 class Phaser(torch.nn.Module):
@@ -66,7 +67,7 @@ class Phaser(torch.nn.Module):
         hops_per_frame = int(1 / (1 - self.overlap))
         self.window_size = hops_per_frame * math.floor(window_length * self.sample_rate / hops_per_frame) # ensure constant OLA
         self.hop_size = int(self.window_size / hops_per_frame)
-        self.Nfft = 2 ** math.ceil(math.log2(self.window_size))
+        self.Nfft = 2 ** math.ceil(math.log2(self.window_size) + 1)
         self.window_idx = torch.arange(0, self.window_size, 1).detach()
         self.hann = z_utils.hann_window(self.window_size).detach()
         self.z = z_utils.z_inverse(self.Nfft, full=False).detach()
@@ -80,17 +81,8 @@ class Phaser(torch.nn.Module):
         # shapes
         ####################
         sequence_length = x.shape[1]
-        N = self.window_size                # window size
-        Nfft = self.Nfft                    # fft length
-        Nfft_half = int(Nfft / 2)
-        num_hops = math.ceil(sequence_length / self.hop_size)
+        num_hops = math.floor(sequence_length / self.hop_size) + 1
 
-        ##############
-        # init vectors
-        ##############
-        Npad = int(N/2)
-        x_pad = torch.nn.functional.pad(x, (Npad, Npad), 'constant', 0)
-        output_sequence = torch.zeros(x_pad.shape).to(device)
 
         ###########
         # LFO
@@ -108,31 +100,24 @@ class Phaser(torch.nn.Module):
         self.max_d = torch.max(d).detach()        # for logging
         self.min_d = torch.min(d).detach()
 
-        ##########################
-        # DSP loop
+
         #########################
-        for m in range(num_hops):
+        # STFT approximation
+        ########################
+        X = torch.stft(x, n_fft=self.Nfft, hop_length=self.hop_size, win_length=self.window_size,
+                          return_complex=True, onesided=True, center=True, pad_mode='constant', window=self.hann)
+        Y = X * self.transfer_matrix(ap_params).permute(1, 0).unsqueeze(0)
+        return torch.istft(Y, n_fft=self.Nfft, win_length=self.window_size,
+                        hop_length=self.hop_size, window=self.hann, center=True, length=x.shape[1])
 
-            # window and take FFT
-            x_frame = x_pad[:, self.window_idx + m * self.hop_size]
-            x_dft = torch.fft.fft(self.hann * x_frame, Nfft)[:, 0:Nfft_half+1]
 
-            # manipulate DFT
-            y_dft = x_dft * self.transfer_function(ap_params[m])
-            y_symm = z_utils.make_hermetian(y_dft, dim=1)
-
-            # overlap-add back into output
-            y_frame = torch.real(torch.fft.ifft(y_symm))
-            output_sequence[:, self.window_idx + m*self.hop_size] += self.hann * y_frame[:, :N]
-
-        return output_sequence[:, Npad:-Npad] / self.OLA_gain
-
-    def transfer_function(self, pm):
+    def transfer_matrix(self, p):
         h1 = self.filter1()
         h2 = self.filter2()
-        a = torch.pow(((pm - self.z) / (1 - pm * self.z)), self.K)
+        a = torch.pow(((p - self.z) / (1 - p * self.z)), self.K)
         denom = 1 - torch.pow(self.z, torch.relu(self.phi)) * torch.abs(self.g2) * h2 * a
-        return h1 * (self.g1 + h2 * a / denom)
+        out = h1 * (self.g1 + h2 * a / denom)
+        return out
 
     def get_params(self):
         return {
