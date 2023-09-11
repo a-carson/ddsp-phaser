@@ -4,6 +4,7 @@ import torchaudio
 from train_phaser import Phaser
 from utils import dataset as ds
 
+
 if __name__ == '__main__':
 
     # INPUT ARGUMENTS
@@ -17,7 +18,10 @@ if __name__ == '__main__':
 
     # LOAD DATA
     data, sample_rate = ds.load_dataset(args.dataset_input, args.dataset_target)
-    model = Phaser.load_from_checkpoint(args.checkpoint_path)
+
+    # LOAD MODEL
+    state_dict = torch.load(args.checkpoint_path)
+    model = Phaser.load_from_checkpoint(args.checkpoint_path, sample_rate=sample_rate, strict=False)
 
     # CHANGE PARAMETERS (optional)
     model.model.set_window_size(args.window_length)
