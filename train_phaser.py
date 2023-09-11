@@ -84,7 +84,6 @@ if __name__ == '__main__':
 
     # INPUT ARGUMENTS ------------------------------
     parser = ArgumentParser()
-    parser = pl.Trainer.add_argparse_args(parser)
 
     # general
     parser.add_argument("--checkpoint_path", type=str, default='')
@@ -92,6 +91,7 @@ if __name__ == '__main__':
     parser.add_argument("--run_name", type=str, default='')
     parser.add_argument("--log_path", type=str, default="./out")
     parser.add_argument("--wandb", action=argparse.BooleanOptionalAction)
+    parser.add_argument("--max_epochs", type=int, default=5000)
 
     # model
     parser.add_argument("--f0", type=float, default=0.0)
@@ -165,7 +165,10 @@ if __name__ == '__main__':
         wandb_logger = None
 
     # TRAIN! ---------------------------
-    trainer = pl.Trainer.from_argparse_args(args, log_every_n_steps=10, logger=wandb_logger)
+    trainer = pl.Trainer(log_every_n_steps=10,
+                         logger=wandb_logger,
+                         max_epochs=args.max_epochs,
+                         accelerator='gpu' if torch.cuda.is_available() else 'cpu')
     trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=test_loader)
     trainer.test(dataloaders=test_loader)
 
