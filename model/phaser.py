@@ -81,17 +81,8 @@ class Phaser(torch.nn.Module):
         # shapes
         ####################
         sequence_length = x.shape[1]
-        #N = self.window_size                # window size
-        #Nfft = self.Nfft                    # fft length
-        #Nfft_half = int(Nfft / 2)
         num_hops = math.floor(sequence_length / self.hop_size) + 1
 
-        ##############
-        # init vectors
-        ##############
-        #Npad = int(N/2)
-        #x_pad = torch.nn.functional.pad(x, (Npad, Npad), 'constant', 0)
-        #output_sequence = torch.zeros(x_pad.shape).to(device)
 
         ###########
         # LFO
