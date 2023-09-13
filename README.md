@@ -2,6 +2,8 @@
 
 Accompanying code for the DAFx23 submission by A. Carson, C. Valentini-Botinhao, S. King and S. Bilbao.
 
+Read the full paper [here](https://arxiv.org/abs/2306.01332).
+
 The audio dataset used in the paper can be found under ``audio_data/``.
 
 Audio examples can be found [here](https://a-carson.github.io/ddsp-phaser/).
