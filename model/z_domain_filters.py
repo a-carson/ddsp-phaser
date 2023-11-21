@@ -4,7 +4,6 @@ from torch.nn import Parameter
 
 
 def z_inverse(num_dft_bins, full=False):
-
     if full:
         n = torch.arange(0, num_dft_bins, 1)
     else:
@@ -23,7 +22,7 @@ def hann_window(N):
 
 def make_hermetian(x, dim):
     length = x.shape[dim]
-    interior = torch.index_select(x, dim, torch.arange(1, length-1, 1))
+    interior = torch.index_select(x, dim, torch.arange(1, length - 1, 1))
     return torch.cat((x, torch.flip(torch.conj(interior), dims=[dim])), dim)
 
 
@@ -33,11 +32,13 @@ class Biquad(torch.nn.Module):
         self.ff_params = Parameter(Tensor([0.0, 0.0]))
         self.fb_params = Parameter(Tensor([0.0, 0.0]))
         self.DC = Parameter(Tensor([1.0]))
-        self.pows = Tensor([1.0, 2.0])
-        self.Nfft = Nfft
-        self.z = z_inverse(self.Nfft, full=False).detach().unsqueeze(1)
-        self.zpows = torch.pow(self.z, self.pows)
+        self.register_buffer("pows", Tensor([1.0, 2.0]))
+        self.register_buffer(
+            "z", z_inverse(self.Nfft, full=False).detach().unsqueeze(1)
+        )
+        self.register_buffer("zpows", torch.pow(self.z, self.pows))
         self.normalise = normalise
+        self.Nfft = Nfft
 
     def forward(self):
         ff = torch.sum(self.ff_params * self.zpows, 1)
@@ -50,6 +51,7 @@ class Biquad(torch.nn.Module):
 
     def set_Nfft(self, Nfft):
         self.Nfft = Nfft
-        self.z = z_inverse(self.Nfft, full=False).detach().unsqueeze(1)
-        self.zpows = torch.pow(self.z, self.pows)
-
+        self.register_buffer(
+            "z", z_inverse(self.Nfft, full=False).detach().unsqueeze(1)
+        )
+        self.register_buffer("zpows", torch.pow(self.z, self.pows))
