@@ -33,9 +33,7 @@ class Biquad(torch.nn.Module):
         self.fb_params = Parameter(Tensor([0.0, 0.0]))
         self.DC = Parameter(Tensor([1.0]))
         self.register_buffer("pows", Tensor([1.0, 2.0]))
-        self.register_buffer(
-            "z", z_inverse(self.Nfft, full=False).detach().unsqueeze(1)
-        )
+        self.register_buffer("z", z_inverse(Nfft, full=False).detach().unsqueeze(1))
         self.register_buffer("zpows", torch.pow(self.z, self.pows))
         self.normalise = normalise
         self.Nfft = Nfft
