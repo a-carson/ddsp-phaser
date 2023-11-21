@@ -141,7 +141,6 @@ class PhaserSampleBased(torch.nn.Module):
 
         b2 = torch.cat([b1.new_ones(1), self.filter2_params["b"]])
         a2 = torch.cat([b1.new_ones(1), self.filter2_params["a"]])
-        # h1h2 = lfilter(h1, a2, b2, clamp=False)
 
         allpass_b = torch.stack([p, -torch.ones_like(p)], dim=1)
         allpass_a = torch.stack([torch.ones_like(p), -p], dim=1)
