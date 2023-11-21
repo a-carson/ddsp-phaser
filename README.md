@@ -27,6 +27,12 @@ python3 train_phaser.py
 ````
 For full list of arguments use ``python3 train_phaser.py --help`` or see ``train_phaser.py`` file.
 
+To train with exact sample-by-sample time domain filtering use:
+```bash
+python3 train_phaser.py --exact --phi 1
+```
+where ``--phi`` is the fixed delay in samples of the feedback path.
+
 #### Inference
 An example pre-trained model of the EHX Small Stone under parameter configuration SS-A is provided.
 To run this model in inference mode use:
