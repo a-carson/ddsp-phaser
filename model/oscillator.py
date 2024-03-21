@@ -5,49 +5,50 @@ from torch.nn import Parameter
 class DampedOscillator(torch.nn.Module):
 
     default_damping = 0.7
+    default_amplitude = 1.0
 
-    def __init__(self,
-                 omega=None,
-                 phi=None):
+    def __init__(self):
         super().__init__()
 
-        self.za = None
-        if omega is None:
-            omega = torch.pi * torch.rand(1)    # random frequency
-        self.set_omega(omega)
+        omega = 0.1 * torch.randn(1)
+        w = torch.tensor([torch.sqrt(-torch.log(torch.Tensor([self.default_damping]))), omega])
+        self.w = Parameter(w)
 
-        if phi is None:
-            zb = torch.tensor([1.0, 0])
-        else:
-            zb = torch.tensor([torch.cos(torch.tensor(phi)),
-                               torch.sin(torch.tensor(phi))])
-        self.zb = Parameter(zb)
+        phi = torch.randn(1)
+        z0 = torch.polar(torch.Tensor([self.default_amplitude]), phi)
+        self.z0 = Parameter(torch.view_as_real(z0))
+
+
 
     def forward(self, n, damped, normalise=False):
 
-        za = torch.view_as_complex(self.za)
-        zb = torch.view_as_complex(self.zb)
+        z = torch.polar(self.get_r(), self.get_omega())
+        z0 = torch.view_as_complex(self.z0)
 
         if not damped:
-            za = za / torch.abs(za)
+            z = z / torch.abs(z)
 
         if normalise:
-            zb = zb / torch.abs(zb)
+            z0 = z0 / torch.abs(z0)
 
-        x = torch.real(zb * za ** n)
-        return x
+        return torch.real(z0 * z ** n)
+
 
     def set_omega(self, omega):
-        za = torch.tensor([torch.cos(torch.Tensor([omega])), torch.sin(torch.Tensor([omega]))])
-        self.za = Parameter(self.default_damping * za)
+        w = torch.tensor([torch.sqrt(-torch.log(torch.Tensor([self.default_damping]))), omega])
+        self.w = Parameter(w)
+
+    def set_phase(self, phi):
+        z0 = torch.polar(torch.Tensor([self.default_amplitude]), torch.Tensor([phi]))
+        self.z0 = Parameter(torch.view_as_real(z0))
 
     def get_omega(self):
-        return torch.angle(torch.view_as_complex(self.za))
+        return self.w[1]
+
+    def get_r(self):
+        return torch.exp(-self.w[0] ** 2)
 
     def set_frequency(self, f0, sample_rate):
         omega = 2 * torch.pi * f0 / sample_rate
         self.set_omega(omega)
-
-
-
 

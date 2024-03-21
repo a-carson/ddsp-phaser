@@ -200,11 +200,11 @@ class PhaserSampleBased(torch.nn.Module):
     def get_params(self):
         return {
             "lfo_f0": (self.sample_rate / self.hop_size)
-            * torch.angle(torch.view_as_complex(self.lfo.za))
+            * self.lfo.get_omega()
             / 2
             / torch.pi,
-            "lfo_r": torch.norm(self.lfo.za),
-            "lfo_phase": torch.angle(torch.view_as_complex(self.lfo.zb)),
+            "lfo_r": self.lfo.get_r(),
+            "lfo_phase": torch.angle(torch.view_as_complex(self.lfo.z0)),
             "lfo_max": self.max_d,
             "lfo_min": self.min_d,
             "dry_mix": self.g1.detach(),
@@ -227,6 +227,7 @@ class Phaser(torch.nn.Module):
         mlp_activation="tanh",
         f_range=None,
         num_filters=4,
+        phi=None,
     ):
         super().__init__()
 
@@ -247,7 +248,10 @@ class Phaser(torch.nn.Module):
         ######################
         self.g1 = Parameter(Tensor([1.0]))  # through-path gain
         self.g2 = Parameter(Tensor([0.01]))  # feedback gain
-        self.phi = Parameter(Tensor([0.5]))  # feedback delay-line
+        if phi == -1:
+            self.phi = Parameter(Tensor([0.5]))  # feedback delay-line
+        else:
+            self.phi = Tensor([phi])
         if f_range is None:  # break-frequency max/min [Hz]
             self.depth = Parameter(0.5 * torch.rand(1))
             self.bias = Parameter(0.1 * torch.rand(1))
@@ -354,11 +358,11 @@ class Phaser(torch.nn.Module):
     def get_params(self):
         return {
             "lfo_f0": (self.sample_rate / self.hop_size)
-            * torch.angle(torch.view_as_complex(self.lfo.za))
+            * self.lfo.get_omega()
             / 2
             / torch.pi,
-            "lfo_r": torch.norm(self.lfo.za),
-            "lfo_phase": torch.angle(torch.view_as_complex(self.lfo.zb)),
+            "lfo_r": self.lfo.get_r(),
+            "lfo_phase": torch.angle(torch.view_as_complex(self.lfo.z0)),
             "lfo_max": self.max_d,
             "lfo_min": self.min_d,
             "dry_mix": self.g1.detach(),

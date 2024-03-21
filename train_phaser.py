@@ -11,6 +11,7 @@ import torch
 from torch.utils.data import DataLoader
 import torchaudio
 import wandb
+from model.digital_phaser import DigitalPhaser
 
 
 class Phaser(pl.LightningModule):
@@ -24,6 +25,7 @@ class Phaser(pl.LightningModule):
                 mlp_activation=args.mlp_activation,
                 mlp_width=args.mlp_width,
                 mlp_layers=args.mlp_layers,
+                phi=args.phi,
             )
         else:
             self.model = phaser.PhaserSampleBased(
@@ -76,8 +78,7 @@ class Phaser(pl.LightningModule):
         return {"loss": loss}
 
     def validation_step(self, batch, batch_idx):
-        self.epoch += 1
-        if self.epoch % 50 == 0:
+        if self.current_epoch % 50 == 0:
             return self.test_step(batch, batch_idx)
         else:
             return
@@ -93,6 +94,16 @@ class Phaser(pl.LightningModule):
         self.log(
             "test_loss_mrsl", loss_mrsl, on_epoch=True, prog_bar=False, logger=True
         )
+        audio = torch.flatten(y_hat)
+        wandb.log(
+            {'Audio/' + "Val": wandb.Audio(audio.cpu().detach().numpy(), caption="Val", sample_rate=44100),
+             'epoch': self.current_epoch})
+
+        if self.current_epoch == 0:
+            audio = torch.flatten(y)
+            wandb.log(
+                {'Audio/' + "Target": wandb.Audio(audio.cpu().detach().numpy(), caption="Val", sample_rate=44100),
+                 'epoch': self.current_epoch})
         return y_hat
 
     def configure_optimizers(self):
@@ -117,7 +128,7 @@ if __name__ == "__main__":
 
     # model
     parser.add_argument("--exact", action="store_true")
-    parser.add_argument("--phi", type=int, default=0)
+    parser.add_argument("--phi", type=int, default=-1)
     parser.add_argument("--f0", type=float, default=0.0)
     parser.add_argument("--freeze", type=int, default=0)
     parser.add_argument("--window_length", type=float, default=0.08)
@@ -126,7 +137,7 @@ if __name__ == "__main__":
     parser.add_argument("--mlp_activation", type=str, default="tanh")
     parser.add_argument("--mlp_width", type=int, default=8)
     parser.add_argument("--mlp_layers", type=int, default=3)
-    parser.add_argument("--manual_seed", action=argparse.BooleanOptionalAction)
+    parser.add_argument("--manual_seed", type=int, default=-1)
 
     # data
     parser.add_argument(
@@ -137,12 +148,16 @@ if __name__ == "__main__":
         type=str,
         default="audio_data/small_stone/colour=0_rate=3oclock.wav",
     )
-    parser.add_argument("--sequence_length", type=float, default=2.67)
+    parser.add_argument("--sequence_length", type=float, default=5.0)
     parser.add_argument("--sequence_length_test", type=float, default=10.0)
 
+    parser.add_argument("--synthetic_data", action=argparse.BooleanOptionalAction)
+    parser.add_argument("--target_f0", type=float, default=1.0)
+
+
     args = parser.parse_args()
-    if args.manual_seed is not None:
-        torch.manual_seed(0)
+    if args.manual_seed >= 0:
+        torch.manual_seed(args.manual_seed)
 
     if torch.cuda.is_available():
         pin_memory = True
@@ -154,6 +169,12 @@ if __name__ == "__main__":
     # LOAD DATA -------------------
     audio_data, sample_rate = ds.load_dataset(args.dataset_input, args.dataset_target)
     args.sample_rate = sample_rate
+
+    if args.synthetic_data:
+        print("Generating synthetic data...")
+        dp = DigitalPhaser(sample_rate=args.sample_rate, f0=args.target_f0)
+        audio_data['target'] = torch.from_numpy(dp(audio_data["input"].numpy()))
+        print('Generating synthetic data done.')
 
     train_seq_length = int(args.sequence_length * sample_rate)
     test_seq_length = int(args.sequence_length_test * sample_rate)
