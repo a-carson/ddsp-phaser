@@ -115,6 +115,9 @@ class Phaser(pl.LightningModule):
     def on_train_epoch_start(self):
         self.last_time = time.time()
 
+LOG_PATH = os.environ.get('WANDB_LOG_DIR', default='wandb_logs/')
+
+
 
 if __name__ == "__main__":
     # INPUT ARGUMENTS ------------------------------
@@ -229,7 +232,13 @@ if __name__ == "__main__":
 
     # optional wandb logger
     if args.wandb is not None:
-        wandb_logger = WandbLogger(project=args.project_name, name=args.run_name, group=args.experiment_name)
+        path = os.path.join(LOG_PATH, args.project_name)
+        if not os.path.exists(path):
+            os.mkdir(path)
+        wandb_logger = WandbLogger(project=args.project_name,
+                                   name=args.run_name,
+                                   group=args.experiment_name,
+                                   save_dir=path)
     else:
         wandb_logger = None
 
