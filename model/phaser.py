@@ -1,9 +1,13 @@
 import math
+
+import scipy.signal
+import numpy as np
+
 from model.mlp import MLP
 from model.oscillator import DampedOscillator
 import torch
 from torch.nn import Parameter, ParameterDict
-from torch import Tensor
+from torch import Tensor as T
 import torch.nn.functional as F
 from torchaudio.functional import lfilter
 import model.z_domain_filters as z_utils
@@ -11,8 +15,53 @@ from torchlpc import sample_wise_lpc
 
 from typing import List, Union
 
+def time_varying_fir(x: T, b: T) -> T:
+    assert x.ndim == 2
+    assert b.ndim == 3
+    assert x.size(0) == b.size(0)
+    assert x.size(1) == b.size(1)
+    order = b.size(2) - 1
+    x_padded = F.pad(x, (order, 0))
+    x_unfolded = x_padded.unfold(dimension=1, size=order + 1, step=1)
+    x_unfolded = x_unfolded.unsqueeze(3)
+    b = b.flip(2).unsqueeze(2)
+    y = b @ x_unfolded
+    y = y.squeeze(3)
+    y = y.squeeze(2)
+    return y
 
-def coeff_product(polynomials: Union[Tensor, List[Tensor]]) -> Tensor:
+
+def calc_lp_biquad_coeff(w: T, q: T, eps: float = 1e-3) -> (T, T):
+    assert w.ndim == 2
+    assert q.ndim == 2
+    assert 0.0 <= w.min()
+    assert torch.pi >= w.max()
+    assert 0.0 < q.min()
+
+    stability_factor = 1.0 - eps
+    alpha_q = torch.sin(w) / (2 * q)
+    a0 = 1.0 + alpha_q
+    a1 = -2.0 * torch.cos(w) * stability_factor
+    a1 = a1 / a0
+    a2 = (1.0 - alpha_q) * stability_factor
+    a2 = a2 / a0
+    assert (a1.abs() < 2.0).all()
+    assert (a2 < 1.0).all()
+    assert (a1 < a2 + 1.0).all()
+    assert (a1 > -(a2 + 1.0)).all()
+    a = torch.stack([a1, a2], dim=2)
+
+    b0 = (1.0 - torch.cos(w)) / 2.0
+    b0 = b0 / a0
+    b1 = 1.0 - torch.cos(w)
+    b1 = b1 / a0
+    b2 = (1.0 - torch.cos(w)) / 2.0
+    b2 = b2 / a0
+    b = torch.stack([b0, b1, b2], dim=2)
+
+    return a, b
+
+def coeff_product(polynomials: Union[T, List[T]]) -> T:
     n = len(polynomials)
     if n == 1:
         return polynomials[0]
@@ -56,15 +105,15 @@ class PhaserSampleBased(torch.nn.Module):
         ######################
         # Learnable Parameters
         ######################
-        self.g1 = Parameter(Tensor([1.0]))  # through-path gain
-        self.g2 = Parameter(Tensor([0.01]))  # feedback gain
+        self.g1 = Parameter(T([1.0]))  # through-path gain
+        self.g2 = Parameter(T([0.05]))  # feedback gain
         self.phi = phi
         if f_range is None:  # break-frequency max/min [Hz]
             self.depth = Parameter(0.5 * torch.rand(1))
             self.bias = Parameter(0.1 * torch.rand(1))
         else:
-            d_max = Tensor([max(f_range) * 2 / sample_rate])
-            d_min = Tensor([min(f_range) * 2 / sample_rate])
+            d_max = T([max(f_range) * 2 / sample_rate])
+            d_min = T([min(f_range) * 2 / sample_rate])
             self.depth = Parameter(d_max - d_min)
             self.bias = Parameter(d_min)
 
@@ -80,15 +129,9 @@ class PhaserSampleBased(torch.nn.Module):
         )
         self.filter1_params = ParameterDict(
             {
-                "b": Parameter(Tensor([0.0, 0.0])),
-                "a": Parameter(Tensor([0.0, 0.0])),
-                "DC": Parameter(Tensor([1.0])),
-            }
-        )
-        self.filter2_params = ParameterDict(
-            {
-                "b": Parameter(Tensor([0.0, 0.0])),
-                "a": Parameter(Tensor([0.0, 0.0])),
+                "b": Parameter(T([0.0, 0.0])),
+                "a": Parameter(T([0.0, 0.0])),
+                "DC": Parameter(T([1.0])),
             }
         )
 
@@ -97,6 +140,8 @@ class PhaserSampleBased(torch.nn.Module):
         ###############
         self.max_d = 0.0
         self.min_d = 0.0
+
+        self.thru_gain = Parameter(T([1.0]))
 
     def forward(self, x):
         device = x.device
@@ -124,13 +169,6 @@ class PhaserSampleBased(torch.nn.Module):
         self.max_d = torch.max(d).detach()  # for logging
         self.min_d = torch.min(d).detach()
 
-        # upsample p
-        # p = F.interpolate(
-        #     p.view(1, 1, -1),
-        #     size=((num_hops - 1) * self.hop_size + 1),
-        #     mode="linear",
-        #     align_corners=True,
-        # ).view(-1)[:sequence_length]
 
         # filter h1
         b1 = torch.cat([self.filter1_params["DC"], self.filter1_params["b"]])
@@ -139,18 +177,11 @@ class PhaserSampleBased(torch.nn.Module):
 
         h1g = self.g1 * h1
 
-        b2 = torch.cat([b1.new_ones(1), self.filter2_params["b"]])
-        a2 = torch.cat([b1.new_ones(1), self.filter2_params["a"]])
-
         allpass_b = torch.stack([p, -torch.ones_like(p)], dim=1)
         allpass_a = torch.stack([torch.ones_like(p), -p], dim=1)
 
-        combine_b = coeff_product(
-            [b2.unsqueeze(0).expand(num_hops, -1)] + [allpass_b] * self.K
-        )
-        combine_a = coeff_product(
-            [a2.unsqueeze(0).expand(num_hops, -1)] + [allpass_a] * self.K
-        )
+        combine_b = coeff_product([allpass_b] * self.K)
+        combine_a = coeff_product([allpass_a] * self.K)
 
         if self.phi > 0:
             combine_denom = torch.cat(
@@ -185,15 +216,10 @@ class PhaserSampleBased(torch.nn.Module):
             .T[:sequence_length]
         )
 
-        h1h2a = (
-            F.pad(h1.view(1, 1, -1), (combine_b.shape[1] - 1, 0))
-            .view(-1, 1)
-            .unfold(0, combine_b.shape[1], 1)
-            @ combine_b.flip(1).unsqueeze(2)
-        ).squeeze()
+        h1h2a = time_varying_fir(h1.unsqueeze(0), combine_b.unsqueeze(0))
 
         h1h2a = sample_wise_lpc(
-            h1h2a.unsqueeze(0), combine_denom.unsqueeze(0)[..., 1:]
+            h1h2a, combine_denom[..., 1:].unsqueeze(0)
         ).squeeze()
         return (h1g + h1h2a).unsqueeze(0)
 
@@ -246,18 +272,18 @@ class Phaser(torch.nn.Module):
         ######################
         # Learnable Parameters
         ######################
-        self.g1 = Parameter(Tensor([1.0]))  # through-path gain
-        self.g2 = Parameter(Tensor([0.01]))  # feedback gain
+        self.g1 = Parameter(T([1.0]))  # through-path gain
+        self.g2 = Parameter(T([0.01]))  # feedback gain
         if phi == -1:
-            self.phi = Parameter(Tensor([0.5]))  # feedback delay-line
+            self.phi = Parameter(T([0.5]))  # feedback delay-line
         else:
-            self.phi = Tensor([phi])
+            self.phi = T([phi])
         if f_range is None:  # break-frequency max/min [Hz]
             self.depth = Parameter(0.5 * torch.rand(1))
             self.bias = Parameter(0.1 * torch.rand(1))
         else:
-            d_max = Tensor([max(f_range) * 2 / sample_rate])
-            d_min = Tensor([min(f_range) * 2 / sample_rate])
+            d_max = T([max(f_range) * 2 / sample_rate])
+            d_min = T([min(f_range) * 2 / sample_rate])
             self.depth = Parameter(d_max - d_min)
             self.bias = Parameter(d_min)
 
@@ -272,7 +298,6 @@ class Phaser(torch.nn.Module):
             bias=True,
         )
         self.filter1 = z_utils.Biquad(Nfft=self.Nfft, normalise=False)
-        self.filter2 = z_utils.Biquad(Nfft=self.Nfft, normalise=True)
 
         ################
         # for logging
@@ -301,13 +326,15 @@ class Phaser(torch.nn.Module):
         #####################
         # shapes
         ####################
-        sequence_length = x.shape[1]
+        sequence_length = x.shape[-1]
         num_hops = math.floor(sequence_length / self.hop_size) + 1
 
         ###########
         # LFO
         ###########
-        time = torch.arange(0, num_hops).detach().view(num_hops, 1).to(device)
+        time = torch.arange(0, num_hops).detach().view(num_hops, 1).to(device).repeat(x.shape[0], 1, 1)
+        batch_offsets = num_hops * torch.arange(0, x.shape[0]).view(-1, 1, 1)
+        time = time + batch_offsets
         lfo = self.lfo(time, damped=self.damped)
         waveshaped_lfo = self.mlp(lfo)
 
@@ -324,7 +351,7 @@ class Phaser(torch.nn.Module):
         # STFT approximation
         ########################
         X = torch.stft(
-            x,
+            x.squeeze(1),
             n_fft=self.Nfft,
             hop_length=self.hop_size,
             win_length=self.window_size,
@@ -334,7 +361,8 @@ class Phaser(torch.nn.Module):
             pad_mode="constant",
             window=self.hann,
         )
-        Y = X * self.transfer_matrix(ap_params).permute(1, 0).unsqueeze(0)
+        H = self.transfer_matrix(ap_params).permute(0, 2, 1)
+        Y = X * H
         return torch.istft(
             Y,
             n_fft=self.Nfft,
@@ -342,17 +370,16 @@ class Phaser(torch.nn.Module):
             hop_length=self.hop_size,
             window=self.hann,
             center=True,
-            length=x.shape[1],
+            length=x.shape[-1],
         )
 
     def transfer_matrix(self, p):
         h1 = self.filter1()
-        h2 = self.filter2()
         a = torch.pow(((p - self.z) / (1 - p * self.z)), self.K)
         denom = (
-            1 - torch.pow(self.z, torch.relu(self.phi)) * torch.abs(self.g2) * h2 * a
+            1 - torch.pow(self.z, torch.relu(self.phi)) * torch.abs(self.g2) * a
         )
-        out = h1 * (self.g1 + h2 * a / denom)
+        out = h1 * (self.g1 + a / denom)
         return out
 
     def get_params(self):
@@ -379,3 +406,14 @@ class Phaser(torch.nn.Module):
         self.set_frequency(lfo_freq)
         self.filter1.set_Nfft(Nfft=self.Nfft)
         self.filter2.set_Nfft(Nfft=self.Nfft)
+
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+    omega = T([torch.pi*0.8]).view(1, -1)
+    q = T([0.707]).view(1, -1)
+    a, b = calc_lp_biquad_coeff(omega, q, 1e-3)
+    freqs, H = scipy.signal.freqz(b.flatten().numpy(), a.flatten().numpy())
+    plt.plot(freqs, np.abs(H))
+    plt.show()
+    print(b)
+    print(a)

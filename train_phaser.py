@@ -40,7 +40,6 @@ class Phaser(pl.LightningModule):
             )
 
         self.save_hyperparameters()
-        self.train_sequence_length = int(args.sequence_length * args.sample_rate)
         self.esr = loss_modules.ESRLoss()
         self.mrsl = loss_modules.MRSL(fft_lengths=[512, 1024, 2048])
         if args.loss_fcn == "esr":
@@ -51,6 +50,7 @@ class Phaser(pl.LightningModule):
             print("Loss function: MRSL")
         self.last_time = time.time()
         self.epoch = 0
+        self.wandb = args.wandb
 
     def forward(self, x):
         return self.model(x)
@@ -59,7 +59,7 @@ class Phaser(pl.LightningModule):
         # Training
         x, y = batch
         y_pred = self.model.forward(x)
-        loss = self.loss_fcn(y, y_pred)
+        loss = self.loss_fcn(y.squeeze(1), y_pred)
 
         # Logging
         self.log("train_loss_esr", loss, on_step=True, prog_bar=True, logger=True)
@@ -78,7 +78,7 @@ class Phaser(pl.LightningModule):
         return {"loss": loss}
 
     def validation_step(self, batch, batch_idx):
-        if self.current_epoch % 50 == 0:
+        if self.current_epoch % 250 == 0:
             return self.test_step(batch, batch_idx)
         else:
             return
@@ -88,26 +88,28 @@ class Phaser(pl.LightningModule):
         self.model.damped = False
         y_hat = self.model.forward(x)
         self.model.damped = True
-        loss_esr = self.esr(y, y_hat)
-        loss_mrsl = self.mrsl(y, y_hat)
+        loss_esr = self.esr(y.squeeze(1), y_hat)
+        loss_mrsl = self.mrsl(y.squeeze(1), y_hat.squeeze(1))
         self.log("test_loss_esr", loss_esr, on_epoch=True, prog_bar=False, logger=True)
         self.log(
             "test_loss_mrsl", loss_mrsl, on_epoch=True, prog_bar=False, logger=True
         )
         audio = torch.flatten(y_hat)
-        wandb.log(
-            {'Audio/' + "Val": wandb.Audio(audio.cpu().detach().numpy(), caption="Val", sample_rate=44100),
-             'epoch': self.current_epoch})
+        if self.wandb:
+            wandb.log(
+                {'Audio/' + "Val": wandb.Audio(audio.cpu().detach().numpy(), caption="Val", sample_rate=44100),
+                 'epoch': self.current_epoch})
 
         if self.current_epoch == 0:
             audio = torch.flatten(y)
-            wandb.log(
-                {'Audio/' + "Target": wandb.Audio(audio.cpu().detach().numpy(), caption="Val", sample_rate=44100),
-                 'epoch': self.current_epoch})
+            if self.wandb:
+                wandb.log(
+                    {'Audio/' + "Target": wandb.Audio(audio.cpu().detach().numpy(), caption="Val", sample_rate=44100),
+                     'epoch': self.current_epoch})
         return y_hat
 
     def configure_optimizers(self):
-        opt = torch.optim.Adam(self.parameters(), lr=1e-3, eps=1e-08, weight_decay=0)
+        opt = torch.optim.Adam(self.parameters(), lr=5e-4, eps=1e-08, weight_decay=0)
         return opt
 
     def on_train_epoch_start(self):
@@ -122,6 +124,7 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint_path", type=str, default="")
     parser.add_argument("--project_name", type=str, default="")
     parser.add_argument("--run_name", type=str, default="")
+    parser.add_argument("--experiment_name", type=str, default="")
     parser.add_argument("--log_path", type=str, default="./out")
     parser.add_argument("--wandb", action=argparse.BooleanOptionalAction)
     parser.add_argument("--max_epochs", type=int, default=5000)
@@ -148,7 +151,7 @@ if __name__ == "__main__":
         type=str,
         default="audio_data/small_stone/colour=0_rate=3oclock.wav",
     )
-    parser.add_argument("--sequence_length", type=float, default=5.0)
+    parser.add_argument("--train_data_length", type=float, default=4.0)
     parser.add_argument("--sequence_length_test", type=float, default=10.0)
 
     parser.add_argument("--synthetic_data", action=argparse.BooleanOptionalAction)
@@ -170,32 +173,37 @@ if __name__ == "__main__":
     audio_data, sample_rate = ds.load_dataset(args.dataset_input, args.dataset_target)
     args.sample_rate = sample_rate
 
+    audio_data["input"] = torchaudio.functional.highpass_biquad(audio_data["input"], cutoff_freq=20, sample_rate=sample_rate)
+    audio_data["target"] = torchaudio.functional.highpass_biquad(audio_data["target"], cutoff_freq=20, sample_rate=sample_rate)
+
+
     if args.synthetic_data:
         print("Generating synthetic data...")
         dp = DigitalPhaser(sample_rate=args.sample_rate, f0=args.target_f0)
         audio_data['target'] = torch.from_numpy(dp(audio_data["input"].numpy()))
         print('Generating synthetic data done.')
 
-    train_seq_length = int(args.sequence_length * sample_rate)
+    train_data_length = int(args.train_data_length * sample_rate)
     test_seq_length = int(args.sequence_length_test * sample_rate)
-    start = (
-        int(60 * sample_rate) - train_seq_length
-    )  # custom dataset contains 60s of chirp signal (training data) followed by test audio
+    train_end = int(60 * sample_rate)
+    train_start = train_end - train_data_length  # custom dataset contains 60s of chirp signal (training data) followed by test audio
+
 
     train_loader = DataLoader(
         dataset=ds.SequenceDataset(
-            data=audio_data, sequence_length=train_seq_length, start=start
+            input=audio_data["input"][..., train_start:train_end],
+            target=audio_data["target"][..., train_start:train_end],
+            sequence_length=train_data_length,
         ),
         pin_memory=pin_memory,
-        num_workers=num_workers,
-    )
+        num_workers=num_workers)
     test_loader = DataLoader(
         dataset=ds.SequenceDataset(
-            data=audio_data,
-            sequence_length=test_seq_length + train_seq_length,
-            start=start,
-        )
-    )  # must be same as train loader for LFO phase consistency
+            input=audio_data["input"][..., train_start:],
+            target=audio_data["target"][..., train_start:],
+            sequence_length=test_seq_length + train_data_length,
+            max_sequences=1,
+        ))  # must be same as train loader for LFO phase consistency
 
     # LOAD MODEL --------------------
     if args.checkpoint_path == "":
@@ -221,7 +229,7 @@ if __name__ == "__main__":
 
     # optional wandb logger
     if args.wandb is not None:
-        wandb_logger = WandbLogger(project=args.project_name, name=args.run_name)
+        wandb_logger = WandbLogger(project=args.project_name, name=args.run_name, group=args.experiment_name)
     else:
         wandb_logger = None
 
@@ -235,15 +243,15 @@ if __name__ == "__main__":
     trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=test_loader)
     trainer.test(dataloaders=test_loader)
 
-    # SAVE AUDIO -----------------------
-    model.eval()
-    with torch.no_grad():
-        model.model.damped = False
-        out = model.model.forward(audio_data["input"])
-    path = "audio_out.wav"
-    if wandb_logger is not None:
-        path = os.path.join(args.project_name, wandb_logger.version, path)
-    torchaudio.save(path, out.detach(), sample_rate)
-    if wandb_logger is not None:
-        wandb.save(path)
-    print("Saved")
+    # # SAVE AUDIO -----------------------
+    # model.eval()
+    # with torch.no_grad():
+    #     model.model.damped = False
+    #     out = model.model.forward(audio_data["input"])
+    # path = "audio_out.wav"
+    # if wandb_logger is not None:
+    #     path = os.path.join(args.project_name, wandb_logger.version, path)
+    # torchaudio.save(path, out.detach(), sample_rate)
+    # if wandb_logger is not None:
+    #     wandb.save(path)
+    # print("Saved")
