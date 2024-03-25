@@ -298,7 +298,8 @@ class Phaser(torch.nn.Module):
             bias=True,
         )
         self.filter1 = z_utils.Biquad(Nfft=self.Nfft, normalise=False)
-
+        self.filter2 = z_utils.Biquad(Nfft=self.Nfft, normalise=False)
+        self.filter3 = z_utils.Biquad(Nfft=self.Nfft, normalise=False)
         ################
         # for logging
         ###############
@@ -333,7 +334,7 @@ class Phaser(torch.nn.Module):
         # LFO
         ###########
         time = torch.arange(0, num_hops).detach().view(num_hops, 1).to(device).repeat(x.shape[0], 1, 1)
-        batch_offsets = num_hops * torch.arange(0, x.shape[0]).view(-1, 1, 1)
+        batch_offsets = num_hops * torch.arange(0, x.shape[0]).view(-1, 1, 1).to(device)
         time = time + batch_offsets
         lfo = self.lfo(time, damped=self.damped)
         waveshaped_lfo = self.mlp(lfo)
@@ -375,11 +376,13 @@ class Phaser(torch.nn.Module):
 
     def transfer_matrix(self, p):
         h1 = self.filter1()
+        h2 = self.filter2()
+        h3 = self.filter3()
         a = torch.pow(((p - self.z) / (1 - p * self.z)), self.K)
         denom = (
-            1 - torch.pow(self.z, torch.relu(self.phi)) * torch.abs(self.g2) * a
+            1 - torch.pow(self.z, torch.relu(self.phi).to(p.device)) * torch.abs(self.g2) * a * h2
         )
-        out = h1 * (self.g1 + a / denom)
+        out = h1 * (self.g1 + h3 *  a / denom)
         return out
 
     def get_params(self):
