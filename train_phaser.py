@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 import torchaudio
 import wandb
 from model.digital_phaser import DigitalPhaser
+import matplotlib.pyplot as plt
 
 
 class Phaser(pl.LightningModule):
@@ -55,14 +56,15 @@ class Phaser(pl.LightningModule):
 
         # Training
         x, y = batch
-        y_pred = self(x)
+        y_pred, _ = self(x)
         loss = self.loss_fcn(y.squeeze(1), y_pred)
 
         # optimize
         opt.zero_grad()
         self.manual_backward(loss)
         # clip gradients
-        self.clip_gradients(opt, gradient_clip_val=0.5, gradient_clip_algorithm="norm")
+        if self.sample_based:
+            self.clip_gradients(opt, gradient_clip_val=0.5, gradient_clip_algorithm="norm")
         opt.step()
 
         # Logging
@@ -84,8 +86,8 @@ class Phaser(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         self.model.damped = False
-        y_hat = self.model.forward(x)
-        y_hat_sample_base = self.model.forward_sample_based(x)
+        y_hat, p = self.model.forward(x)
+        y_hat_sample_base, _ = self.model.forward_sample_based(x)
         self.model.damped = True
         loss_esr = self.esr(y.squeeze(1), y_hat)
         loss_esr_sample_based = self.esr(y, y_hat_sample_base.squeeze(1))
@@ -100,6 +102,17 @@ class Phaser(pl.LightningModule):
                     {'Audio/' + "Val": wandb.Audio(audio.cpu().detach().numpy(), caption="Val", sample_rate=44100),
                      'epoch': self.current_epoch})
 
+                H1 = self.model.filter1().detach().cpu()
+                plt.plot(20 * torch.log10(H1.abs()))
+                wandb.log({"|H|": plt})
+
+                h1 = torch.fft.irfft(H1)
+                plt.plot(h1)
+                wandb.log({"h[n]": plt})
+
+                plt.plot(p.flatten().detach().cpu())
+                wandb.log({"LFO": plt})
+
         if self.current_epoch == 0:
             audio = torch.flatten(y)
             if self.wandb:
@@ -111,8 +124,8 @@ class Phaser(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         x, y = batch
         self.model.damped = False
-        y_hat = self.model.forward(x)
-        y_hat_sample_base = self.model.forward_sample_based(x)
+        y_hat, _ = self.model.forward(x)
+        y_hat_sample_base, _ = self.model.forward_sample_based(x)
         self.model.damped = True
         loss_esr = self.esr(y.squeeze(1), y_hat)
         loss_esr_sample_based = self.esr(y, y_hat_sample_base.squeeze(1))
@@ -152,7 +165,7 @@ if __name__ == "__main__":
 
     # model
     parser.add_argument("--exact", action="store_true")
-    parser.add_argument("--phi", type=int, default=-1)
+    parser.add_argument("--phi", type=int, default=0)
     parser.add_argument("--f0", type=float, default=0.0)
     parser.add_argument("--freeze", type=int, default=0)
     parser.add_argument("--window_length", type=float, default=0.08)
@@ -198,6 +211,8 @@ if __name__ == "__main__":
 
     audio_data["input"] = torchaudio.functional.highpass_biquad(audio_data["input"], cutoff_freq=20, sample_rate=sample_rate)
     audio_data["target"] = torchaudio.functional.highpass_biquad(audio_data["target"], cutoff_freq=20, sample_rate=sample_rate)
+    audio_data["input"] = audio_data["input"].double()
+    audio_data["target"] = audio_data["target"].double()
 
 
     if args.synthetic_data:
@@ -243,6 +258,8 @@ if __name__ == "__main__":
             args=args,
             sample_rate=sample_rate)
 
+    model.double()
+
     # freezes osc parameters
     if args.freeze != 0:
         model.model.set_frequency(args.f0)
@@ -268,7 +285,7 @@ if __name__ == "__main__":
         logger=wandb_logger,
         max_epochs=args.max_epochs,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        callbacks=[pl.callbacks.ModelCheckpoint(monitor="val_loss_sample", filename="{epoch}-{val_loss_sample:.4f}")]
+        callbacks=[pl.callbacks.ModelCheckpoint(monitor="val_loss_sample", filename="{epoch}-{val_loss_sample:.4f}", save_last=True)]
     )
     trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=test_loader)
     trainer.test(dataloaders=test_loader, ckpt_path='best')

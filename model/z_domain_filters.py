@@ -1,6 +1,7 @@
 import torch
 from torch import Tensor as T
 from torch.nn import Parameter
+import torch.nn.functional as F
 
 def time_varying_fir(x: T, b: T) -> T:
     assert x.ndim == 2

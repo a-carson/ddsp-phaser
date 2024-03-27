@@ -163,7 +163,7 @@ class Phaser(torch.nn.Module):
             window=self.hann,
             center=True,
             length=x.shape[-1],
-        )
+        ), p
 
     def forward_sample_based(self, x):
         device = x.device
@@ -238,7 +238,7 @@ class Phaser(torch.nn.Module):
         h1h2a = sample_wise_lpc(
             h1h2a, combine_denom[..., 1:].unsqueeze(0)
         ).squeeze()
-        return (h1g + h1h2a).unsqueeze(0)
+        return (h1g + h1h2a).unsqueeze(0), p
 
     def transfer_matrix(self, p):
         h1 = self.filter1()
