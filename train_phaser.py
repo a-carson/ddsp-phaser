@@ -17,26 +17,14 @@ from model.digital_phaser import DigitalPhaser
 class Phaser(pl.LightningModule):
     def __init__(self, args):
         super().__init__()
-        if not args.exact:
-            self.model = phaser.Phaser(
-                sample_rate=args.sample_rate,
-                window_length=args.window_length,
-                overlap_factor=args.overlap,
-                mlp_activation=args.mlp_activation,
-                mlp_width=args.mlp_width,
-                mlp_layers=args.mlp_layers,
-                phi=args.phi,
-            )
-        else:
-            self.model = phaser.PhaserSampleBased(
-                sample_rate=args.sample_rate,
-                hop_size=int(
-                    args.window_length * args.sample_rate * (1 - args.overlap)
-                ),
-                mlp_activation=args.mlp_activation,
-                mlp_width=args.mlp_width,
-                mlp_layers=args.mlp_layers,
-                phi=args.phi,
+        self.model = phaser.Phaser(
+            sample_rate=args.sample_rate,
+            window_length=args.window_length,
+            overlap_factor=args.overlap,
+            mlp_activation=args.mlp_activation,
+            mlp_width=args.mlp_width,
+            mlp_layers=args.mlp_layers,
+            phi=args.phi,
             )
 
         self.save_hyperparameters()
@@ -51,15 +39,31 @@ class Phaser(pl.LightningModule):
         self.last_time = time.time()
         self.epoch = 0
         self.wandb = args.wandb
+        self.sample_based = args.exact
+        self.lr = args.lr
+        self.automatic_optimization = False
 
     def forward(self, x):
-        return self.model(x)
+        if self.sample_based:
+            return self.model.forward_sample_based(x)
+        else:
+            return self.model.forward(x)
 
     def training_step(self, batch, batch_idx):
+
+        opt = self.optimizers()
+
         # Training
         x, y = batch
-        y_pred = self.model.forward(x)
+        y_pred = self(x)
         loss = self.loss_fcn(y.squeeze(1), y_pred)
+
+        # optimize
+        opt.zero_grad()
+        self.manual_backward(loss)
+        # clip gradients
+        self.clip_gradients(opt, gradient_clip_val=0.5, gradient_clip_algorithm="norm")
+        opt.step()
 
         # Logging
         self.log("train_loss_esr", loss, on_step=True, prog_bar=True, logger=True)
@@ -78,27 +82,23 @@ class Phaser(pl.LightningModule):
         return {"loss": loss}
 
     def validation_step(self, batch, batch_idx):
-        if self.current_epoch % 250 == 0:
-            return self.test_step(batch, batch_idx)
-        else:
-            return
-
-    def test_step(self, batch, batch_idx):
         x, y = batch
         self.model.damped = False
         y_hat = self.model.forward(x)
+        y_hat_sample_base = self.model.forward_sample_based(x)
         self.model.damped = True
         loss_esr = self.esr(y.squeeze(1), y_hat)
-        loss_mrsl = self.mrsl(y.squeeze(1), y_hat.squeeze(1))
-        self.log("test_loss_esr", loss_esr, on_epoch=True, prog_bar=False, logger=True)
-        self.log(
-            "test_loss_mrsl", loss_mrsl, on_epoch=True, prog_bar=False, logger=True
-        )
+        loss_esr_sample_based = self.esr(y, y_hat_sample_base.squeeze(1))
+        self.log("val_loss_frame", loss_esr, on_epoch=True, prog_bar=False, logger=True)
+        self.log("val_loss_sample", loss_esr_sample_based, on_epoch=True, prog_bar=False, logger=True)
+
         audio = torch.flatten(y_hat)
+
         if self.wandb:
-            wandb.log(
-                {'Audio/' + "Val": wandb.Audio(audio.cpu().detach().numpy(), caption="Val", sample_rate=44100),
-                 'epoch': self.current_epoch})
+            if self.current_epoch % 250 == 0:
+                wandb.log(
+                    {'Audio/' + "Val": wandb.Audio(audio.cpu().detach().numpy(), caption="Val", sample_rate=44100),
+                     'epoch': self.current_epoch})
 
         if self.current_epoch == 0:
             audio = torch.flatten(y)
@@ -108,8 +108,26 @@ class Phaser(pl.LightningModule):
                      'epoch': self.current_epoch})
         return y_hat
 
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        self.model.damped = False
+        y_hat = self.model.forward(x)
+        y_hat_sample_base = self.model.forward_sample_based(x)
+        self.model.damped = True
+        loss_esr = self.esr(y.squeeze(1), y_hat)
+        loss_esr_sample_based = self.esr(y, y_hat_sample_base.squeeze(1))
+        self.log("test_loss_frame", loss_esr, on_epoch=True, prog_bar=False, logger=True)
+        self.log("test_loss_sample", loss_esr_sample_based, on_epoch=True, prog_bar=False, logger=True)
+        audio = torch.flatten(y_hat)
+        if self.wandb:
+            wandb.log(
+                {'Audio/' + "Test": wandb.Audio(audio.cpu().detach().numpy(), caption="Test", sample_rate=44100),
+                 'epoch': self.current_epoch})
+
+        return y_hat
+
     def configure_optimizers(self):
-        opt = torch.optim.Adam(self.parameters(), lr=5e-4, eps=1e-08, weight_decay=0)
+        opt = torch.optim.Adam(self.parameters(), self.lr, eps=1e-08, weight_decay=0)
         return opt
 
     def on_train_epoch_start(self):
@@ -144,6 +162,8 @@ if __name__ == "__main__":
     parser.add_argument("--mlp_width", type=int, default=8)
     parser.add_argument("--mlp_layers", type=int, default=3)
     parser.add_argument("--manual_seed", type=int, default=-1)
+    parser.add_argument("--lr", type=float, default=5e-4)
+
 
     # data
     parser.add_argument(
@@ -154,7 +174,7 @@ if __name__ == "__main__":
         type=str,
         default="audio_data/small_stone/colour=0_rate=3oclock.wav",
     )
-    parser.add_argument("--train_data_length", type=float, default=4.0)
+    parser.add_argument("--train_data_length", type=float, default=5.67)
     parser.add_argument("--sequence_length_test", type=float, default=10.0)
 
     parser.add_argument("--synthetic_data", action=argparse.BooleanOptionalAction)
@@ -219,9 +239,9 @@ if __name__ == "__main__":
         else:
             model.model.set_frequency(args.f0)
     else:
-        model = Phaser.load_from_checkpoint(
-            args.checkpoint_path, sample_rate=sample_rate
-        )
+        model = Phaser.load_from_checkpoint(args.checkpoint_path,
+            args=args,
+            sample_rate=sample_rate)
 
     # freezes osc parameters
     if args.freeze != 0:
@@ -248,9 +268,10 @@ if __name__ == "__main__":
         logger=wandb_logger,
         max_epochs=args.max_epochs,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
+        callbacks=[pl.callbacks.ModelCheckpoint(monitor="val_loss_sample", filename="{epoch}-{val_loss_sample:.4f}")]
     )
     trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=test_loader)
-    trainer.test(dataloaders=test_loader)
+    trainer.test(dataloaders=test_loader, ckpt_path='best')
 
     # # SAVE AUDIO -----------------------
     # model.eval()

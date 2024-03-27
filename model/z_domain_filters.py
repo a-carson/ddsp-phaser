@@ -2,6 +2,21 @@ import torch
 from torch import Tensor as T
 from torch.nn import Parameter
 
+def time_varying_fir(x: T, b: T) -> T:
+    assert x.ndim == 2
+    assert b.ndim == 3
+    assert x.size(0) == b.size(0)
+    assert x.size(1) == b.size(1)
+    order = b.size(2) - 1
+    x_padded = F.pad(x, (order, 0))
+    x_unfolded = x_padded.unfold(dimension=1, size=order + 1, step=1)
+    x_unfolded = x_unfolded.unsqueeze(3)
+    b = b.flip(2).unsqueeze(2)
+    y = b @ x_unfolded
+    y = y.squeeze(3)
+    y = y.squeeze(2)
+    return y
+
 def calc_lp_biquad_coeff(w: T, q: T, eps: float = 1e-3) -> (T, T):
     assert w.ndim == 2
     assert q.ndim == 2
@@ -31,6 +46,20 @@ def calc_lp_biquad_coeff(w: T, q: T, eps: float = 1e-3) -> (T, T):
     b = torch.stack([b0, b1, b2], dim=2)
 
     return a, b
+
+def fourth_order_ap_coeffs(p):
+    b = torch.stack(
+        [p**4, -4*p**3, 6*p**2, -4*p, torch.ones_like(p)], dim=1
+    )
+    a = b.flip(1)
+    return a, b
+
+def logits2coeff(logits: T) -> T:
+    assert logits.shape[-1] == 2
+    a1 = torch.tanh(logits[..., 0]) * 2
+    a1_abs = torch.abs(a1)
+    a2 = 0.5 * ((2 - a1_abs) * torch.tanh(logits[..., 1]) + a1_abs)
+    return torch.stack([torch.ones_like(a1), a1, a2], dim=-1)
 
 def z_inverse(num_dft_bins, full=False):
     if full:
@@ -73,7 +102,7 @@ class Biquad(torch.nn.Module):
             ff += 1.0
         else:
             ff += self.DC
-        fb = 1.0 + torch.sum(self.fb_params * self.zpows, 1)
+        fb = 1.0 + torch.sum(logits2coeff(self.fb_params).squeeze()[1:] * self.zpows, 1)
         return ff / fb
 
     def set_Nfft(self, Nfft):
