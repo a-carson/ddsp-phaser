@@ -162,6 +162,8 @@ if __name__ == "__main__":
     parser.add_argument("--log_path", type=str, default="./out")
     parser.add_argument("--wandb", action=argparse.BooleanOptionalAction)
     parser.add_argument("--max_epochs", type=int, default=5000)
+    parser.add_argument("--check_val_every_n_epoch", type=int, default=50)
+
 
     # model
     parser.add_argument("--exact", action="store_true")
@@ -285,7 +287,8 @@ if __name__ == "__main__":
         logger=wandb_logger,
         max_epochs=args.max_epochs,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        callbacks=[pl.callbacks.ModelCheckpoint(monitor="val_loss_sample", filename="{epoch}-{val_loss_sample:.4f}", save_last=True)]
+        callbacks=[pl.callbacks.ModelCheckpoint(monitor="val_loss_sample", filename="{epoch}-{val_loss_sample:.4f}", save_last=True)],
+        check_val_every_n_epoch=args.check_val_every_n_epoch
     )
     trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=test_loader)
     trainer.test(dataloaders=test_loader, ckpt_path='best')
